@@ -51,6 +51,7 @@ public class EnvConfigs implements Configs {
   public static final String CONFIG_ROOT = "CONFIG_ROOT";
   public static final String DOCKER_NETWORK = "DOCKER_NETWORK";
   public static final String TRACKING_STRATEGY = "TRACKING_STRATEGY";
+  public static final String DEPLOYMENT_MODE = "DEPLOYMENT_MODE";
   public static final String DATABASE_USER = "DATABASE_USER";
   public static final String DATABASE_PASSWORD = "DATABASE_PASSWORD";
   public static final String DATABASE_URL = "DATABASE_URL";
@@ -58,6 +59,8 @@ public class EnvConfigs implements Configs {
   public static final String CONFIG_DATABASE_PASSWORD = "CONFIG_DATABASE_PASSWORD";
   public static final String CONFIG_DATABASE_URL = "CONFIG_DATABASE_URL";
   public static final String WEBAPP_URL = "WEBAPP_URL";
+  public static final String MAX_RETRIES_PER_ATTEMPT = "MAX_RETRIES_PER_ATTEMPT";
+  public static final String MAX_SYNC_JOB_ATTEMPTS = "MAX_SYNC_JOB_ATTEMPTS";
   private static final String MINIMUM_WORKSPACE_RETENTION_DAYS = "MINIMUM_WORKSPACE_RETENTION_DAYS";
   private static final String MAXIMUM_WORKSPACE_RETENTION_DAYS = "MAXIMUM_WORKSPACE_RETENTION_DAYS";
   private static final String MAXIMUM_WORKSPACE_SIZE_MB = "MAXIMUM_WORKSPACE_SIZE_MB";
@@ -144,6 +147,16 @@ public class EnvConfigs implements Configs {
   }
 
   @Override
+  public int getMaxRetriesPerAttempt() {
+    return Integer.parseInt(getEnvOrDefault(MAX_RETRIES_PER_ATTEMPT, "3"));
+  }
+
+  @Override
+  public int getMaxSyncJobAttempts() {
+    return Integer.parseInt(getEnvOrDefault(MAX_SYNC_JOB_ATTEMPTS, "3"));
+  }
+
+  @Override
   public String getConfigDatabaseUser() {
     // Default to reuse the job database
     return getEnvOrDefault(CONFIG_DATABASE_USER, getDatabaseUser());
@@ -152,7 +165,7 @@ public class EnvConfigs implements Configs {
   @Override
   public String getConfigDatabasePassword() {
     // Default to reuse the job database
-    return getEnvOrDefault(CONFIG_DATABASE_PASSWORD, getDatabasePassword());
+    return getEnvOrDefault(CONFIG_DATABASE_PASSWORD, getDatabasePassword(), true);
   }
 
   @Override
@@ -186,9 +199,21 @@ public class EnvConfigs implements Configs {
     return getEnvOrDefault(TRACKING_STRATEGY, TrackingStrategy.LOGGING, s -> {
       try {
         return TrackingStrategy.valueOf(s.toUpperCase());
-      } catch (IllegalArgumentException e) {
+      } catch (final IllegalArgumentException e) {
         LOGGER.info(s + " not recognized, defaulting to " + TrackingStrategy.LOGGING);
         return TrackingStrategy.LOGGING;
+      }
+    });
+  }
+
+  @Override
+  public DeploymentMode getDeploymentMode() {
+    return getEnvOrDefault(DEPLOYMENT_MODE, DeploymentMode.OSS, s -> {
+      try {
+        return DeploymentMode.valueOf(s);
+      } catch (final IllegalArgumentException e) {
+        LOGGER.info(s + " not recognized, defaulting to " + DeploymentMode.OSS);
+        return DeploymentMode.OSS;
       }
     });
   }
@@ -287,19 +312,27 @@ public class EnvConfigs implements Configs {
   }
 
   private String getEnvOrDefault(String key, String defaultValue) {
-    return getEnvOrDefault(key, defaultValue, Function.identity());
+    return getEnvOrDefault(key, defaultValue, Function.identity(), false);
+  }
+
+  private String getEnvOrDefault(String key, String defaultValue, boolean isSecret) {
+    return getEnvOrDefault(key, defaultValue, Function.identity(), isSecret);
   }
 
   private long getEnvOrDefault(String key, long defaultValue) {
-    return getEnvOrDefault(key, defaultValue, Long::parseLong);
+    return getEnvOrDefault(key, defaultValue, Long::parseLong, false);
   }
 
   private <T> T getEnvOrDefault(String key, T defaultValue, Function<String, T> parser) {
+    return getEnvOrDefault(key, defaultValue, parser, false);
+  }
+
+  private <T> T getEnvOrDefault(String key, T defaultValue, Function<String, T> parser, boolean isSecret) {
     final String value = getEnv.apply(key);
     if (value != null && !value.isEmpty()) {
       return parser.apply(value);
     } else {
-      LOGGER.info(key + " not found or empty, defaulting to " + defaultValue);
+      LOGGER.info("{} not found or empty, defaulting to {}", key, isSecret ? "*****" : defaultValue);
       return defaultValue;
     }
   }
